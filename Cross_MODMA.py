@@ -12,7 +12,6 @@ from sklearn.model_selection import KFold
 from torch.utils.data import TensorDataset, DataLoader
 from model.Trainer import backbone_network
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-# from data.aug_nor import standardize_data, augment_data
 from model.ddpm import EEG_train
 from model.ddpm import EEG_sample
 from datas.data_pre import load_DE_data1, load_DE_data2, load_sample_data, augment_data, merging_data
@@ -20,10 +19,10 @@ from torch import cuda
 
 def clear_gpu_memory():
     if cuda.is_available():
-        torch.cuda.empty_cache()  # 清空未使用的缓存
-        cuda.ipc_collect()        # 跨进程共享内存清理（多GPU时有用）
+        torch.cuda.empty_cache()  
+        cuda.ipc_collect()
 
-def GetNowTime():#获取当前时间并以年月日时间方式显示
+def GetNowTime():
     return time.strftime("%m%d%H%M%S",time.localtime(time.time()))
             
 def set_all(args):
@@ -54,9 +53,9 @@ parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
 parser.add_argument('--seed', default=1024, type=int)
 
 # Model architecture hyperparameters
-parser.add_argument('--model_name', type=str, default='ConAttnMambaNet', choices=['CNNLSTM', 'EEGNet', 'Conformer', 'ConMambaNet','ConAttnMambaNet'], help='Name of the model architecture')
+parser.add_argument('--model_name', type=str, default='ST-CAM', choices=['CNN-LSTM', 'CNN', 'Conformer','ST-CAM'], help='Name of the model architecture')
 parser.add_argument('--emb_size', type=int, default=40, help='Embedding size for the model')
-parser.add_argument('--depth', type=int, default=3, help='Number of transformer encoder layers')
+parser.add_argument('--depth', type=int, default=3, help='Number of encoder layers')
 parser.add_argument('--dropout', default=0.5, type=float, help='Dropout')
 parser.add_argument("--use_vmamba", action="store_true")
 
@@ -102,12 +101,11 @@ elif not opt['original_data'] and opt['sampling_data']:
 elif opt['original_data'] and not opt['sampling_data']:
     data, labels = data_original, labels_original
 else:
-    raise RuntimeError("数据加载失败")
+    raise RuntimeError("DATA LOAD ERROR!")
 
 print(f"data_shape:{data.shape}")
 print(f"labels_shape:{labels.shape}")
 
-# ######创建txt文件，保存最后结果
 root_path = 'results/MODMA'
 local_time=time.localtime()[0:5]
 txt_name = 'Cross' + '_{:02d}_{:02d}{:02d}_{:02d}'.format(
@@ -151,28 +149,24 @@ with open(os.path.join(root_path, txt_name), 'a') as f:
     f.write(fold_header + "\n")
     f.write("-"*90 + "\n")
 
-######计算平均结果用
 global_start_time = time.time()
 
-# 可调的 K 值（折数）
-K = 5  # 可以调整为 10 或其他值
+K = 5  
 
-# 创建 KFold 对象，shuffle=True 用于打乱数据
 kf = KFold(n_splits=K, shuffle=True, random_state=42)
 
 best_results_all_folds = []
 
 for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
-    clear_gpu_memory()  # 清空内存
+    clear_gpu_memory()  
     fold_start_time = time.time()
-    # 分别提取 MDD 和 HC 的训练集和测试集
+
     train_data, test_data = data[train_idx], data[test_idx]
     train_labels, test_labels = labels[train_idx], labels[test_idx]
     
     print('Training:', train_data.size(), train_labels.size())
     print('Test:', test_data.size(), test_labels.size())
     
-    ##准备好模型
     model = backbone_network(opt, train_data.size())
     
     trainable_params, total_params = model.count_parameters()
@@ -185,16 +179,10 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
     be_acc0 = be_acc1 = be_sen = be_spe = be_f1 = be_pre = be_rec = 0
     best_epo = 0
     
-    # params = model.parameters()  # 获取模型参数
-    # model_optimizer = torch.optim.Adam(model.parameters(), lr=opt['lr'], betas=(0.9, 0.99), weight_decay=3e-4)
-    # 创建 TensorDataset
     train_dataset = TensorDataset(train_data, train_labels)
-    # 创建 DataLoader
     train_loader = DataLoader(train_dataset, batch_size=opt['tr_batch_size'], shuffle=True)
 
     for epoch in range(1, opt['num_epoch']+1):
-        # optimizer.zero_grad()
-
         train_loss = 0
         train_acc = 0
         train_acc0 = 0
@@ -208,40 +196,33 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         count = 0
 
         for tr_idx, (train_x, train_y) in enumerate(train_loader):
-            # 每次从 train_loader 获取一个批次
             train_x = train_x.float().cuda()
             train_y = train_y.float().cuda()
 
             log, loss = model.train_model(train_x, train_y)
 
-            # # 获取第一个维度上的最后一个元素
-            # last_prediction = log[-1].cpu()  # 形状为 40*2
-            # 将预测结果转换为类标签
             _,pred_class = torch.max(log.cpu(), dim=1)  # 形状为 40
             train_y = train_y.cpu()
-            # 检查唯一标签
+
             unique_labels = np.unique(train_y)
             if len(unique_labels) < 2:
                 print(f"Train_Batch {tr_idx+1} only contains one class. Skipping metrics calculation.")
-                continue  # 跳过该批次的指标计算
+                continue 
 
-            # 计算总体指标
             accuracy = accuracy_score(train_y, pred_class)
             precision = precision_score(train_y, pred_class, average='weighted', zero_division=0)
             recall = recall_score(train_y, pred_class, average='weighted', zero_division=0)
             f1 = f1_score(train_y, pred_class, average='weighted', zero_division=0)
-            # Compute sensitivity and specificity
+
             conf_matrix = confusion_matrix(train_y, pred_class)
             tn, fp, fn, tp = conf_matrix.ravel() if conf_matrix.size == 4 else (0, 0, 0, 0)
             sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             count = count +1
 
-            # 计算每个标签的准确率
-            unique_labels = np.unique(train_y)  # 获取所有唯一标签
+            unique_labels = np.unique(train_y) 
             label_accuracies = {}
             for label in unique_labels:
-                # 提取当前标签的样本
                 label_indices = train_y == label
                 label_accuracy = accuracy_score(train_y[label_indices], pred_class[label_indices])
                 label_accuracies[label] = label_accuracy
@@ -256,7 +237,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
             train_pre += precision
             train_rec += recall
         
-        ##################所有batch的平均值是一个epoch
         train_acc = train_acc / count
         train_acc0 = train_acc0 / count
         train_acc1 = train_acc1 / count
@@ -287,10 +267,11 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         test_f1 = 0
         test_pre = 0
         test_rec = 0
-        # 创建 TensorDataset
+
+        
         test_dataset = TensorDataset(test_data, test_labels)
-        # 创建 DataLoader
         test_loader = DataLoader(test_dataset, batch_size=opt['te_batch_size'], shuffle=True)
+        
         count = 0
         for te_idx, (test_x, test_y) in enumerate(test_loader):  
             
@@ -298,34 +279,27 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
             test_y = test_y.float().cuda()
 
             predicts, last_out, outs, _ = model.predict_model(test_x,test_y)
-            # 获取第一个维度上的最后一个元素
-            # last_prediction = predicts[-1].cpu()  # 形状为 40*2
-            # 将预测结果转换为类标签
-            _,pred_class = torch.max(predicts.cpu(), dim=1)  # 形状为 40
-            # logits = np.argmax(log.data.cpu().numpy(), axis=1) 
+
+            _,pred_class = torch.max(predicts.cpu(), dim=1) 
             test_y = test_y.cpu()
-            # 检查唯一标签
             unique_labels = np.unique(test_y)
             if len(unique_labels) < 2:
                 print(f"Test_Batch {te_idx+1} only contains one class. Skipping metrics calculation.")
-                continue  # 跳过该批次的指标计算
+                continue  
 
-            # 计算总体指标
             accuracy = accuracy_score(test_y, pred_class)
             precision = precision_score(test_y, pred_class, average='weighted', zero_division=0)
             recall = recall_score(test_y, pred_class, average='weighted', zero_division=0)
             f1 = f1_score(test_y, pred_class, average='weighted', zero_division=0)
-            # Compute sensitivity and specificity
+
             conf_matrix = confusion_matrix(test_y, pred_class)
             tn, fp, fn, tp = conf_matrix.ravel() if conf_matrix.size == 4 else (0, 0, 0, 0)
             sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             count = count +1
 
-            # 计算每个标签的准确率
             label_accuracies = {}
             for label in unique_labels:
-                # 提取当前标签的样本
                 label_indices = test_y == label
                 label_accuracy = accuracy_score(test_y[label_indices], pred_class[label_indices])
                 label_accuracies[label] = label_accuracy
@@ -339,8 +313,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
             test_pre += precision
             test_rec += recall
 
-        # print ("##############################################")
-        ##################所有batch的平均值是一个epoch
         test_acc = test_acc / count
         test_acc0 = test_acc0 / count
         test_acc1 = test_acc1 / count
@@ -350,8 +322,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         test_pre = test_pre / count
         test_rec = test_rec / count
         
-        # #############输出每个epoch结果
-        # 打印输出
         print(f"Fold = {fold + 1}: "
             f"Epoch = {epoch}: "
             f"Test Accuracy = {test_acc:.4f}\n"
@@ -373,7 +343,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
             best_epo = epoch
             model.save(fold)
 
-        # 打印输出
     print(f"Fold = {fold + 1}: "
         f"BeEpo = {best_epo}: "
         f"Best_Accuracy = {correct:.4f}\n"
@@ -384,7 +353,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         f"Best_Recall = {test_rec:.4f}\n")
     
     times = "%s"%datetime.now()
-    #########将数据结果保存到一维列表
     best_results_all_folds.append({
         'fold': fold + 1,
         'epoch': best_epo,
@@ -398,19 +366,15 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         'recall': be_rec,
         'time': datetime.now().strftime("%H:%M:%S")
     })
-        # Write per-fold results to TXT file
     with open(os.path.join(root_path, txt_name), 'a') as f:
         f.write("{:<10} {:<10} {:<10.4f} {:<10.4f} {:<10.4f} {:<10.4f} {:<10.4f} {:<10.4f} {:<10}\n".format(
             fold + 1, best_epo, correct, be_sen, be_spe, be_f1, be_pre, be_rec,
             datetime.now().strftime("%H:%M:%S")
         ))
 
-# === 所有 fold 结束后 ===
-# 计算所有指标的平均
 all_metrics = ['accuracy', 'acc0', 'acc1', 'sensitivity', 'specificity', 'f1', 'precision', 'recall']
 avg_results = {metric: np.mean([fold_result[metric] for fold_result in best_results_all_folds]) for metric in all_metrics}
 
-# 在屏幕上打印格式化的平均结果
 print("\n" + "="*80)
 print("Average results across all folds:")
 print("-"*80)
@@ -430,8 +394,6 @@ print("{:<15.4f} {:<15.4f} {:<15.2f}".format(
     time.time() - global_start_time))
 print("="*80 + "\n")
 
-# 保存平均结果到TXT文件
-# Write average results to TXT file
 with open(os.path.join(root_path, txt_name), 'a') as f:
     f.write("\nAverage results across all folds:\n")
     f.write(avg_header + "\n")
