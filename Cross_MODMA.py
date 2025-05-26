@@ -75,7 +75,6 @@ parser.add_argument('--times', type=int, default=2, help='times of the augment d
 # make opt
 args = parser.parse_args()
 opt = vars(args)
-##显卡设置
 set_all(args)
 
 init_time = time.time()
@@ -201,7 +200,7 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
 
             log, loss = model.train_model(train_x, train_y)
 
-            _,pred_class = torch.max(log.cpu(), dim=1)  # 形状为 40
+            _,pred_class = torch.max(log.cpu(), dim=1)
             train_y = train_y.cpu()
 
             unique_labels = np.unique(train_y)
