@@ -245,8 +245,7 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(data)):
         train_pre = train_pre / count
         train_rec = train_rec / count
         train_loss = train_loss / count
-
-        # 打印输出
+        
         print(f"Fold = {fold + 1}: "
             f"Epoch = {epoch}: "
             f"Train Accuracy = {train_acc:.4f}\n"
