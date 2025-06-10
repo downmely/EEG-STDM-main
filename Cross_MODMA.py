@@ -53,7 +53,7 @@ parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
 parser.add_argument('--seed', default=1024, type=int)
 
 # Model architecture hyperparameters
-parser.add_argument('--model_name', type=str, default='ST-CAM', choices=['CNN-LSTM', 'CNN', 'Conformer','ST-CAM'], help='Name of the model architecture')
+parser.add_argument('--model_name', type=str, default='ST-CAM', choices=['CNN-LSTM', 'CNN', 'Transformer','ST-CAM'], help='Name of the model architecture')
 parser.add_argument('--emb_size', type=int, default=40, help='Embedding size for the model')
 parser.add_argument('--depth', type=int, default=3, help='Number of encoder layers')
 parser.add_argument('--dropout', default=0.5, type=float, help='Dropout')
